@@ -1,17 +1,15 @@
-//
-//  foodApp.swift
-//  food
-//
-//  Created by Gabriel Barzola arana on 5/11/25.
-//
-
 import SwiftUI
+import FirebaseCore
 
 @main
-struct foodApp: App {
+struct FoodApp: App {
+    init() {
+        FirebaseApp.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
     }
 }
