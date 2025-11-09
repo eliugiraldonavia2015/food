@@ -22,3 +22,20 @@ find . \
 
 
 \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+
+
+
+
+PROMPT VERIFICAR ARCHIVOS VIEJOS CON NUEVOS SUGERIDOS Y ACTUALIZAR MEJORADO
+
+
+te pasare mi codigo viejo que ya funciona y es funcional totalmente, y 
+luego despues de analziar los objetivos y el codigo biejo te pasare el nuevo, 
+tu revisaras que el nuevo no dane la integridad del viejo, y que las mejoras 
+o adiciones del nuevo funcionen y sean profesionales, si requieres hacer 
+mejoras ya sea por incompatibiliad, error de tipado etc, hazlo y dime el 
+porque, me daras el codigo completo corregido y actualizado para cumplir los 
+objetivos de esta etapa o incluso si es requeriod por profesionalismo anadir 
+uno que otro sin salirte del objetivo de esta etapa.
+

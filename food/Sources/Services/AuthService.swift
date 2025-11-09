@@ -1,3 +1,4 @@
+// food/food/Sources/Services/AuthService.swift
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
@@ -5,6 +6,42 @@ import GoogleSignIn
 import UIKit
 import Combine
 
+// MARK: - Password Strength Domain Model
+public struct PasswordStrength {
+    public let score: Int
+    public let strength: StrengthLevel
+    public let feedback: [String]
+    
+    public enum StrengthLevel: String, CaseIterable {
+        case veryWeak = "Muy débil"
+        case weak = "Débil"
+        case medium = "Media"
+        case strong = "Fuerte"
+        case veryStrong = "Muy fuerte"
+        
+        // ✅ CORRECCIÓN: Sin dependencias de UI - solo datos
+        public var colorIdentifier: String {
+            switch self {
+            case .veryWeak, .weak: return "red"
+            case .medium: return "orange"
+            case .strong, .veryStrong: return "green"
+            }
+        }
+        
+        // ✅ CORRECCIÓN: Usar Double nativo en lugar de CGFloat
+        public var progressValue: Double {
+            switch self {
+            case .veryWeak: return 0.2
+            case .weak: return 0.4
+            case .medium: return 0.6
+            case .strong: return 0.8
+            case .veryStrong: return 1.0
+            }
+        }
+    }
+}
+
+// MARK: - User Domain Model
 public struct AppUser: Identifiable {
     public let id = UUID()
     public let uid: String
@@ -28,6 +65,7 @@ public struct AppUser: Identifiable {
     }
 }
 
+// MARK: - Authentication Service
 public final class AuthService: ObservableObject {
     public static let shared = AuthService()
     
@@ -36,12 +74,10 @@ public final class AuthService: ObservableObject {
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var errorMessage: String?
     
-    // ✅ CORRECCIÓN: Especificar la misma base de datos
     private let firestore = Firestore.firestore(database: "logincloud")
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     
     private init() {
-        // ✅ CORRECCIÓN: Configuración correcta del host
         let settings = firestore.settings
         settings.host = "firestore.googleapis.com"
         firestore.settings = settings
@@ -59,7 +95,16 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // MARK: - Google Sign-In
+    // MARK: - Password Validation
+    public func meetsMinimumPasswordRequirements(_ password: String) -> Bool {
+        let hasUpperCase = password.rangeOfCharacter(from: .uppercaseLetters) != nil
+        let hasLowerCase = password.rangeOfCharacter(from: .lowercaseLetters) != nil
+        let hasMinimumLength = password.count >= 8
+        
+        return hasUpperCase && hasLowerCase && hasMinimumLength
+    }
+    
+    // MARK: - Authentication Methods
     public func signInWithGoogle(presentingVC: UIViewController) {
         isLoading = true
         errorMessage = nil
@@ -101,7 +146,6 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // MARK: - Email/Password Sign-In
     public func signInWithEmail(email: String, password: String) {
         isLoading = true
         errorMessage = nil
@@ -115,7 +159,6 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // MARK: - Email/Password Sign-Up
     public func signUpWithEmail(
         email: String,
         password: String,
@@ -126,8 +169,9 @@ public final class AuthService: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        guard isPasswordValid(password) else {
-            handleAuthError("La contraseña debe tener al menos 8 caracteres, una mayúscula y una minúscula")
+        // ✅ SOLO validamos requisitos mínimos, no fortaleza
+        guard meetsMinimumPasswordRequirements(password) else {
+            handleAuthError("La contraseña debe tener al menos 8 caracteres, incluyendo una mayúscula y una minúscula.")
             return
         }
         
@@ -165,10 +209,130 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    private func isPasswordValid(_ password: String) -> Bool {
-        return password.count >= 8 &&
-               password.rangeOfCharacter(from: .uppercaseLetters) != nil &&
-               password.rangeOfCharacter(from: .lowercaseLetters) != nil
+    // MARK: - Password Strength Evaluation
+    public func evaluatePasswordStrength(_ password: String, email: String? = nil, username: String? = nil) -> PasswordStrength {
+        var score = 0
+        var feedback = [String]()
+        
+        // Longitud (Peso principal)
+        let length = password.count
+        if length >= 16 {
+            score += 25
+            feedback.append("Longitud excelente (16+ caracteres)")
+        } else if length >= 12 {
+            score += 20
+            feedback.append("Longitud muy buena (12-15 caracteres)")
+        } else if length >= 10 {
+            score += 15
+            feedback.append("Longitud buena (10-11 caracteres)")
+        } else if length >= 8 {
+            score += 10
+            feedback.append("Longitud mínima alcanzada (8-9 caracteres)")
+        } else {
+            score += 0
+            feedback.append("Longitud insuficiente (mínimo 8 caracteres)")
+        }
+        
+        // Complejidad
+        let hasUpperCase = password.rangeOfCharacter(from: .uppercaseLetters) != nil
+        let hasLowerCase = password.rangeOfCharacter(from: .lowercaseLetters) != nil
+        let hasNumbers = password.rangeOfCharacter(from: .decimalDigits) != nil
+        let hasSpecialChars = password.rangeOfCharacter(from: CharacterSet(charactersIn: "!@#$%^&*()_+-=[]{}|;:,.<>/?")) != nil
+        
+        var complexityPoints = 0
+        if hasUpperCase {
+            complexityPoints += 2
+            feedback.append("✓ Incluye mayúsculas")
+        } else {
+            feedback.append("Agregar mayúsculas mejora la seguridad")
+        }
+        
+        if hasLowerCase {
+            complexityPoints += 2
+            feedback.append("✓ Incluye minúsculas")
+        } else {
+            feedback.append("Agregar minúsculas mejora la seguridad")
+        }
+        
+        if hasNumbers {
+            complexityPoints += 3
+            feedback.append("✓ Incluye números")
+        } else {
+            feedback.append("Agregar números mejora significativamente la seguridad")
+        }
+        
+        if hasSpecialChars {
+            complexityPoints += 4
+            feedback.append("✓ Incluye caracteres especiales")
+        } else {
+            feedback.append("Caracteres especiales (!@# etc.) maximizan la seguridad")
+        }
+        
+        score += complexityPoints
+        
+        // Patrones comunes (solo feedback)
+        let commonPatterns = ["123", "abc", "password", "qwerty", "iloveyou", "111", "000"]
+        for pattern in commonPatterns {
+            if password.lowercased().contains(pattern) {
+                feedback.append("⚠️ Contiene patrones comunes - considera cambiarlos")
+                break
+            }
+        }
+        
+        // Información personal (solo feedback)
+        if let email = email, !email.isEmpty {
+            let emailLocalPart = email.lowercased().components(separatedBy: "@").first ?? ""
+            if !emailLocalPart.isEmpty && password.lowercased().contains(emailLocalPart) {
+                feedback.append("💡 Evita usar partes de tu email para mayor seguridad")
+            }
+        }
+        
+        if let username = username, !username.isEmpty {
+            if password.lowercased().contains(username.lowercased()) {
+                feedback.append("💡 Evita usar tu nombre de usuario para mayor seguridad")
+            }
+        }
+        
+        // Secuencias (solo feedback)
+        if containsSequentialCharacters(password) {
+            feedback.append("💡 Evita secuencias simples (abc, 123) para mayor seguridad")
+        }
+        
+        // Clasificación
+        let strength: PasswordStrength.StrengthLevel
+        if score >= 35 {
+            strength = .veryStrong
+            feedback.insert("🎉 ¡Contraseña excelente! Cumple con estándares empresariales", at: 0)
+        } else if score >= 28 {
+            strength = .strong
+            feedback.insert("✅ Contraseña segura - adecuada para la mayoría de usos", at: 0)
+        } else if score >= 20 {
+            strength = .medium
+            feedback.insert("📊 Contraseña aceptable - considera mejoras para mayor seguridad", at: 0)
+        } else if score >= 12 {
+            strength = .weak
+            feedback.insert("🔒 Contraseña básica - cumple requisitos mínimos", at: 0)
+        } else {
+            strength = .veryWeak
+            feedback.insert("⚠️ Contraseña muy débil - recomendamos mejoras", at: 0)
+        }
+        
+        return PasswordStrength(
+            score: score,
+            strength: strength,
+            feedback: feedback
+        )
+    }
+    
+    // MARK: - Helper Methods
+    private func containsSequentialCharacters(_ password: String) -> Bool {
+        let sequentialPatterns = [
+            "123", "234", "345", "456", "567", "678", "789",
+            "abc", "bcd", "cde", "def", "efg", "fgh", "ghi", "hij", "ijk", "jkl", "klm", "lmn", "mno", "nop", "opq", "pqr", "qrs", "rst", "stu", "tuv", "uvw", "vwx", "wxy", "xyz"
+        ]
+        
+        let lowercasedPassword = password.lowercased()
+        return sequentialPatterns.contains { lowercasedPassword.contains($0) }
     }
     
     // MARK: - Error Handling
@@ -204,7 +368,7 @@ public final class AuthService: ObservableObject {
         case AuthErrorCode.invalidEmail.rawValue:
             errorMessage = "El email no es válido"
         case AuthErrorCode.weakPassword.rawValue:
-            errorMessage = "La contraseña debe tener al menos 8 caracteres, una mayúscula y una minúscula"
+            errorMessage = "La contraseña no cumple los requisitos mínimos de seguridad."
         case AuthErrorCode.networkError.rawValue:
             errorMessage = "Error de conexión. Verifica tu conexión a internet"
         default:

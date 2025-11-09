@@ -3,6 +3,28 @@ import SwiftUI
 import GoogleSignIn
 import UIKit
 
+// MARK: - UI Helper Extensions
+fileprivate extension PasswordStrength.StrengthLevel {
+    var uiColor: Color {
+        switch self.colorIdentifier {
+        case "red": return .red
+        case "orange": return .orange
+        case "green": return .green
+        default: return .gray
+        }
+    }
+    
+    var uiProgressValue: CGFloat {
+        return CGFloat(self.progressValue)
+    }
+}
+
+// MARK: - Focus Field Enum
+private enum FocusField: Hashable {
+    case firstName, lastName, email, username, password, confirmPassword, phone
+}
+
+// MARK: - Main Login View
 struct LoginView: View {
     @StateObject private var auth = AuthService.shared
     @State private var email = ""
@@ -17,6 +39,12 @@ struct LoginView: View {
     @State private var isShowingSignUp = false
     @State private var showAlert = false
     @State private var alertMessage = ""
+    
+    @State private var passwordStrength: PasswordStrength?
+    
+    // ✅ NUEVO: Para manejar el scroll automático
+    @State private var scrollProxy: ScrollViewProxy?
+    @FocusState private var focusedField: FocusField?
     
     var body: some View {
         NavigationStack {
@@ -91,17 +119,20 @@ struct LoginView: View {
         }
     }
     
-    var signInView: some View {
+    // MARK: - Subviews
+    private var signInView: some View {
         VStack(spacing: 15) {
             TextField("Email", text: $email)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .keyboardType(.emailAddress)
                 .autocapitalization(.none)
                 .textContentType(.emailAddress)
+                .focused($focusedField, equals: .email)
             
             SecureField("Contraseña", text: $password)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .textContentType(.password)
+                .focused($focusedField, equals: .password)
             
             Button(action: {
                 auth.signInWithEmail(email: email, password: password)
@@ -117,186 +148,171 @@ struct LoginView: View {
         }
     }
     
-    var signUpView: some View {
-        VStack(spacing: 15) {
-            // Nombre y Apellido
-            HStack(spacing: 10) {
-                TextField("Nombre", text: $firstName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.words)
-                
-                TextField("Apellido", text: $lastName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.words)
-            }
-            
-            // Email
-            TextField("Email", text: $email)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .keyboardType(.emailAddress)
-                .autocapitalization(.none)
-                .textContentType(.emailAddress)
-            
-            // Username
-            HStack {
-                TextField("Nombre de usuario", text: $username)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.none)
-                
-                if !username.isEmpty {
-                    if checkingUsername {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .gray))
-                            .frame(width: 20, height: 20)
-                    } else if isUsernameAvailable {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.red)
+    private var signUpView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 15) {
+                    // Personal Information
+                    HStack(spacing: 10) {
+                        TextField("Nombre", text: $firstName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .autocapitalization(.words)
+                            .focused($focusedField, equals: .firstName)
+                            .id(FocusField.firstName)
+                        
+                        TextField("Apellido", text: $lastName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .autocapitalization(.words)
+                            .focused($focusedField, equals: .lastName)
+                            .id(FocusField.lastName)
                     }
-                }
-            }
-            
-            // Validación de username
-            usernameValidation
-            
-            // Contraseña
-            VStack(alignment: .leading, spacing: 5) {
-                SecureField("Contraseña", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .textContentType(.newPassword)
-                
-                if !password.isEmpty {
-                    Text("Mínimo 8 caracteres con mayúscula y minúscula")
-                        .font(.caption)
-                        .foregroundColor(isPasswordValid ? .green : .red)
-                }
-            }
-            
-            // ✅ CORREGIDO: Confirmar contraseña con validación en tiempo real
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    SecureField("Confirmar contraseña", text: $confirmPassword)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(borderColor, lineWidth: 1)
-                                .padding(.horizontal, -4)
-                                .padding(.vertical, -8)
-                        )
-                        .textContentType(.newPassword)
                     
-                    // Icono de validación en tiempo real
-                    if !confirmPassword.isEmpty {
-                        if passwordsMatch {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                        } else {
-                            Image(systemName: "xmark.circle.fill")
+                    // Account Information
+                    TextField("Email", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .textContentType(.emailAddress)
+                        .focused($focusedField, equals: .email)
+                        .id(FocusField.email)
+                    
+                    // Username with Availability Check
+                    HStack {
+                        TextField("Nombre de usuario", text: $username)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .autocapitalization(.none)
+                            .focused($focusedField, equals: .username)
+                            .id(FocusField.username)
+                        
+                        if !username.isEmpty {
+                            if checkingUsername {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+                                    .frame(width: 20, height: 20)
+                            } else if isUsernameAvailable {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            } else {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    
+                    usernameValidationView
+                    
+                    // ✅ MEJORADO: Password Section con scroll automático
+                    VStack(alignment: .leading, spacing: 10) {
+                        SecureField("Contraseña", text: $password)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .textContentType(.newPassword)
+                            .focused($focusedField, equals: .password)
+                            .id(FocusField.password)
+                            .onChange(of: password) { _, newPass in
+                                passwordStrength = auth.evaluatePasswordStrength(newPass, email: email, username: username)
+                                
+                                // ✅ Scroll automático cuando aparece el feedback
+                                if !newPass.isEmpty && passwordStrength != nil {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo(FocusField.password, anchor: .center)
+                                        }
+                                    }
+                                }
+                            }
+                        
+                        if let strength = passwordStrength {
+                            PasswordStrengthView(strength: strength)
+                        }
+                    }
+                    
+                    // ✅ MEJORADO: Password Confirmation con scroll automático
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            SecureField("Confirmar contraseña", text: $confirmPassword)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(borderColor, lineWidth: 1)
+                                        .padding(.horizontal, -4)
+                                        .padding(.vertical, -8)
+                                )
+                                .textContentType(.newPassword)
+                                .focused($focusedField, equals: .confirmPassword)
+                                .id(FocusField.confirmPassword)
+                                .onChange(of: confirmPassword) { _, newValue in
+                                    // ✅ Scroll automático cuando se empieza a confirmar
+                                    if !newValue.isEmpty {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                            withAnimation(.easeInOut(duration: 0.3)) {
+                                                proxy.scrollTo(FocusField.confirmPassword, anchor: .center)
+                                            }
+                                        }
+                                    }
+                                }
+                            
+                            if !confirmPassword.isEmpty {
+                                if passwordsMatch {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                } else {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                        
+                        if !confirmPassword.isEmpty && !passwordsMatch {
+                            Text("Las contraseñas no coinciden")
+                                .font(.caption)
                                 .foregroundColor(.red)
                         }
                     }
+                    
+                    // Optional Phone
+                    TextField("Teléfono (opcional)", text: $phoneNumber)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .keyboardType(.phonePad)
+                        .focused($focusedField, equals: .phone)
+                        .id(FocusField.phone)
+                    
+                    // Register Button
+                    Button(action: registerUser) {
+                        Text("Registrarse")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isSignUpFormValid ? Color.blue : Color.gray)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    .disabled(!isSignUpFormValid)
+                    .padding(.top)
+                    
+                    // Minimum Requirements Info
+                    if !password.isEmpty {
+                        minimumRequirementsView
+                    }
                 }
-                
-                // Mensaje de error en tiempo real
-                if !confirmPassword.isEmpty && !passwordsMatch {
-                    Text("Las contraseñas no coinciden")
-                        .font(.caption)
-                        .foregroundColor(.red)
+                .padding()
+            }
+            .onAppear {
+                scrollProxy = proxy
+            }
+            // ✅ NUEVO: Manejar el teclado automáticamente
+            .onChange(of: focusedField) { _, newField in
+                if let field = newField {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            proxy.scrollTo(field, anchor: .center)
+                        }
+                    }
                 }
             }
-            
-            // Teléfono (opcional)
-            TextField("Teléfono (opcional)", text: $phoneNumber)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .keyboardType(.phonePad)
-            
-            // Botón de registro
-            Button(action: {
-                registerUser()
-            }) {
-                Text("Registrarse")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(isSignUpFormValid ? Color.blue : Color.gray)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-            }
-            .disabled(!isSignUpFormValid)
         }
     }
     
-    // Computed property para verificar coincidencia de contraseñas
-    private var passwordsMatch: Bool {
-        !password.isEmpty && !confirmPassword.isEmpty && password == confirmPassword
-    }
-    
-    // Computed property para el color del borde
-    private var borderColor: Color {
-        if confirmPassword.isEmpty {
-            return Color.gray
-        } else if passwordsMatch {
-            return Color.green
-        } else {
-            return Color.red
-        }
-    }
-    
-    private func resetSignUpFields() {
-        email = ""
-        password = ""
-        confirmPassword = ""
-        firstName = ""
-        lastName = ""
-        username = ""
-        isUsernameAvailable = true
-        checkingUsername = false
-        phoneNumber = ""
-    }
-    
-    private func registerUser() {
-        guard isSignUpFormValid else { return }
-        
-        auth.signUpWithEmail(
-            email: email,
-            password: password,
-            firstName: firstName,
-            lastName: lastName,
-            username: username
-        )
-    }
-    
-    private var isSignInFormValid: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !password.isEmpty
-    }
-    
-    private var isSignUpFormValid: Bool {
-        !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        isValidEmail(email) &&
-        !password.isEmpty &&
-        password == confirmPassword &&
-        isPasswordValid &&
-        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        isUsernameAvailable
-    }
-    
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailRegEx = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
-        let emailPred = NSPredicate(format:"SELF MATCHES %@", emailRegEx)
-        return emailPred.evaluate(with: email)
-    }
-    
-    private var isPasswordValid: Bool {
-        password.count >= 8 &&
-        password.rangeOfCharacter(from: .uppercaseLetters) != nil &&
-        password.rangeOfCharacter(from: .lowercaseLetters) != nil
-    }
-    
-    private var usernameValidation: some View {
+    // MARK: - Component Subviews
+    private var usernameValidationView: some View {
         VStack(alignment: .leading) {
             if !username.isEmpty {
                 if checkingUsername {
@@ -324,6 +340,264 @@ struct LoginView: View {
         }
     }
     
+    private var passwordSectionView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SecureField("Contraseña", text: $password)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .textContentType(.newPassword)
+                .focused($focusedField, equals: .password)
+                .id(FocusField.password)
+                .onChange(of: password) { _, newPass in
+                    passwordStrength = auth.evaluatePasswordStrength(newPass, email: email, username: username)
+                    
+                    // Scroll automático cuando aparece el feedback
+                    if !newPass.isEmpty && passwordStrength != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            scrollProxy?.scrollTo(FocusField.password, anchor: .center)
+                        }
+                    }
+                }
+            
+            if let strength = passwordStrength {
+                PasswordStrengthView(strength: strength)
+            }
+        }
+    }
+    
+    private var passwordConfirmationView: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                SecureField("Confirmar contraseña", text: $confirmPassword)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(borderColor, lineWidth: 1)
+                            .padding(.horizontal, -4)
+                            .padding(.vertical, -8)
+                    )
+                    .textContentType(.newPassword)
+                    .focused($focusedField, equals: .confirmPassword)
+                    .id(FocusField.confirmPassword)
+                    .onChange(of: confirmPassword) { _, newValue in
+                        // Scroll automático cuando se empieza a confirmar
+                        if !newValue.isEmpty {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                scrollProxy?.scrollTo(FocusField.confirmPassword, anchor: .center)
+                            }
+                        }
+                    }
+                
+                if !confirmPassword.isEmpty {
+                    if passwordsMatch {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            
+            if !confirmPassword.isEmpty && !passwordsMatch {
+                Text("Las contraseñas no coinciden")
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+        }
+    }
+    
+    private var minimumRequirementsView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Requisitos mínimos:")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+            
+            HStack(alignment: .top) {
+                Image(systemName: meetsMinimumRequirements ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(meetsMinimumRequirements ? .green : .gray)
+                Text("8+ caracteres, 1 mayúscula, 1 minúscula")
+                    .font(.caption)
+                    .foregroundColor(meetsMinimumRequirements ? .green : .secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(meetsMinimumRequirements ? Color.green : Color.gray, lineWidth: 1)
+                .background(Color.gray.opacity(0.05))
+        )
+    }
+    
+    // MARK: - Password Strength Component
+    private struct PasswordStrengthView: View {
+        let strength: PasswordStrength
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                // Header with Strength Info
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Nivel de seguridad")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text(strength.strength.rawValue)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(strength.strength.uiColor)
+                    }
+                    
+                    Spacer()
+                    
+                    Text("\(strength.score)/40")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(strength.strength.uiColor.opacity(0.2))
+                        .cornerRadius(8)
+                }
+                
+                // Progress Bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .frame(height: 6)
+                            .foregroundColor(.gray.opacity(0.3))
+                        
+                        RoundedRectangle(cornerRadius: 4)
+                            .frame(
+                                width: geometry.size.width * strength.strength.uiProgressValue,
+                                height: 6
+                            )
+                            .foregroundColor(strength.strength.uiColor)
+                    }
+                }
+                .frame(height: 6)
+                
+                // Feedback Messages
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(strength.feedback.prefix(4).enumerated()), id: \.offset) { _, feedback in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: iconForFeedback(feedback))
+                                .font(.caption2)
+                                .foregroundColor(colorForFeedback(feedback))
+                                .padding(.top, 2)
+                            
+                            Text(feedback)
+                                .font(.caption)
+                                .foregroundColor(colorForFeedback(feedback))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.1))
+            )
+        }
+        
+        private func iconForFeedback(_ feedback: String) -> String {
+            if feedback.contains("🎉") || feedback.contains("✅") {
+                return "star.fill"
+            } else if feedback.contains("✓") {
+                return "checkmark.circle.fill"
+            } else if feedback.contains("⚠️") {
+                return "exclamationmark.triangle.fill"
+            } else if feedback.contains("💡") {
+                return "lightbulb.fill"
+            } else {
+                return "info.circle.fill"
+            }
+        }
+        
+        private func colorForFeedback(_ feedback: String) -> Color {
+            if feedback.contains("🎉") || feedback.contains("✅") || feedback.contains("✓") {
+                return .green
+            } else if feedback.contains("⚠️") {
+                return .orange
+            } else if feedback.contains("💡") {
+                return .blue
+            } else {
+                return .secondary
+            }
+        }
+    }
+    
+    // MARK: - Computed Properties
+    private var passwordsMatch: Bool {
+        !password.isEmpty && !confirmPassword.isEmpty && password == confirmPassword
+    }
+    
+    private var borderColor: Color {
+        if confirmPassword.isEmpty {
+            return Color.gray
+        } else if passwordsMatch {
+            return Color.green
+        } else {
+            return Color.red
+        }
+    }
+    
+    private var meetsMinimumRequirements: Bool {
+        auth.meetsMinimumPasswordRequirements(password)
+    }
+    
+    private var isSignInFormValid: Bool {
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !password.isEmpty
+    }
+    
+    private var isSignUpFormValid: Bool {
+        !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        isValidEmail(email) &&
+        !password.isEmpty &&
+        password == confirmPassword &&
+        meetsMinimumRequirements &&
+        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        isUsernameAvailable
+    }
+    
+    // MARK: - Helper Methods
+    private func resetSignUpFields() {
+        email = ""
+        password = ""
+        confirmPassword = ""
+        firstName = ""
+        lastName = ""
+        username = ""
+        isUsernameAvailable = true
+        checkingUsername = false
+        phoneNumber = ""
+        passwordStrength = nil
+        focusedField = nil
+    }
+    
+    private func registerUser() {
+        guard isSignUpFormValid else { return }
+        
+        auth.signUpWithEmail(
+            email: email,
+            password: password,
+            firstName: firstName,
+            lastName: lastName,
+            username: username
+        )
+    }
+    
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegEx = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+        let emailPred = NSPredicate(format:"SELF MATCHES %@", emailRegEx)
+        return emailPred.evaluate(with: email)
+    }
+    
     private func checkUsernameAvailability(_ username: String) {
         checkingUsername = true
         isUsernameAvailable = false
@@ -349,6 +623,7 @@ struct LoginView: View {
     }
 }
 
+// MARK: - Google Sign In Button
 struct GoogleSignInButton: View {
     let action: () -> Void
     
