@@ -10,17 +10,20 @@ public struct AppUser: Identifiable {
     public let uid: String
     public let email: String?
     public let name: String?
+    public let username: String?
     public let photoURL: URL?
     
     public init(
         uid: String,
         email: String?,
         name: String?,
+        username: String? = nil,
         photoURL: URL?
     ) {
         self.uid = uid
         self.email = email
         self.name = name
+        self.username = username
         self.photoURL = photoURL
     }
 }
@@ -33,15 +36,14 @@ public final class AuthService: ObservableObject {
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var errorMessage: String?
     
-    // ✅ CORREGIDO: Usar la sintaxis correcta para tu versión de Firebase
-    private let firestore = Firestore.firestore()
-    
+    // ✅ CORRECCIÓN: Especificar la misma base de datos
+    private let firestore = Firestore.firestore(database: "logincloud")
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     
     private init() {
-        // ✅ CONFIGURAR: Especificar la base de datos 'logincloud'
+        // ✅ CORRECCIÓN: Configuración correcta del host
         let settings = firestore.settings
-        settings.host = "firestore.googleapis.com/v1/projects/toctoc-1e18c/databases/logincloud"
+        settings.host = "firestore.googleapis.com"
         firestore.settings = settings
         
         authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
@@ -113,6 +115,63 @@ public final class AuthService: ObservableObject {
         }
     }
     
+    // MARK: - Email/Password Sign-Up
+    public func signUpWithEmail(
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        username: String
+    ) {
+        isLoading = true
+        errorMessage = nil
+        
+        guard isPasswordValid(password) else {
+            handleAuthError("La contraseña debe tener al menos 8 caracteres, una mayúscula y una minúscula")
+            return
+        }
+        
+        Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.handleSignUpError(error)
+                    return
+                }
+                
+                guard let user = result?.user else { return }
+                
+                let fullName = "\(firstName) \(lastName)"
+                
+                let changeRequest = user.createProfileChangeRequest()
+                changeRequest.displayName = fullName
+                changeRequest.commitChanges { error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            print("Profile update error: \(error)")
+                        }
+                        
+                        DatabaseService.shared.createUserDocument(
+                            uid: user.uid,
+                            name: fullName,
+                            email: email,
+                            username: username
+                        )
+                        
+                        self?.updateAuthState(with: user)
+                        self?.isLoading = false
+                    }
+                }
+            }
+        }
+    }
+    
+    private func isPasswordValid(_ password: String) -> Bool {
+        return password.count >= 8 &&
+               password.rangeOfCharacter(from: .uppercaseLetters) != nil &&
+               password.rangeOfCharacter(from: .lowercaseLetters) != nil
+    }
+    
+    // MARK: - Error Handling
     private func handleSignInError(_ error: Error) {
         let nsError = error as NSError
         let errorMessage: String
@@ -130,6 +189,26 @@ public final class AuthService: ObservableObject {
             errorMessage = "Demasiados intentos. Por favor, intenta más tarde"
         default:
             errorMessage = "Error al iniciar sesión: \(error.localizedDescription)"
+        }
+        
+        handleAuthError(errorMessage)
+    }
+    
+    private func handleSignUpError(_ error: Error) {
+        let nsError = error as NSError
+        let errorMessage: String
+        
+        switch nsError.code {
+        case AuthErrorCode.emailAlreadyInUse.rawValue:
+            errorMessage = "Este email ya está en uso"
+        case AuthErrorCode.invalidEmail.rawValue:
+            errorMessage = "El email no es válido"
+        case AuthErrorCode.weakPassword.rawValue:
+            errorMessage = "La contraseña debe tener al menos 8 caracteres, una mayúscula y una minúscula"
+        case AuthErrorCode.networkError.rawValue:
+            errorMessage = "Error de conexión. Verifica tu conexión a internet"
+        default:
+            errorMessage = "Error al registrar: \(error.localizedDescription)"
         }
         
         handleAuthError(errorMessage)
@@ -154,7 +233,8 @@ public final class AuthService: ObservableObject {
                             uid: firebaseUser.uid,
                             name: firebaseUser.displayName,
                             email: firebaseUser.email,
-                            photoURL: firebaseUser.photoURL
+                            photoURL: firebaseUser.photoURL,
+                            username: self.extractUsernameFromName(firebaseUser.displayName)
                         )
                     } else {
                         DatabaseService.shared.updateLastLogin(uid: firebaseUser.uid)
@@ -165,6 +245,7 @@ public final class AuthService: ObservableObject {
                     uid: firebaseUser.uid,
                     email: firebaseUser.email,
                     name: firebaseUser.displayName,
+                    username: self.extractUsernameFromName(firebaseUser.displayName),
                     photoURL: firebaseUser.photoURL
                 )
                 self.isAuthenticated = true
@@ -174,6 +255,18 @@ public final class AuthService: ObservableObject {
             }
             self.isLoading = false
         }
+    }
+    
+    private func extractUsernameFromName(_ name: String?) -> String? {
+        guard let name = name else { return nil }
+        
+        let username = name
+            .lowercased()
+            .replacingOccurrences(of: " ", with: ".")
+            .components(separatedBy: .whitespaces)
+            .joined()
+        
+        return username.count >= 3 ? username : nil
     }
     
     public func handleAuthError(_ message: String) {
@@ -199,6 +292,7 @@ public final class AuthService: ObservableObject {
                 uid: currentUser.uid,
                 email: self.user?.email,
                 name: name,
+                username: self.extractUsernameFromName(name),
                 photoURL: photoURL ?? self.user?.photoURL
             )
         }

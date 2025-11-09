@@ -5,26 +5,22 @@ import Foundation
 public final class DatabaseService {
     public static let shared = DatabaseService()
     
-    // ✅ ACTUALIZADO: Configurar para usar 'logincloud'
     private let db: Firestore
-    
     private let usersCollection = "users"
     
     private init() {
-        // Inicializar Firestore
-        self.db = Firestore.firestore()
+        // ✅ CORRECCIÓN: Especificar explícitamente la base de datos por nombre
+        self.db = Firestore.firestore(database: "logincloud")
         
-        // Configurar para usar la base de datos específica
+        // ✅ CORRECCIÓN: Configuración correcta del host (solo dominio)
         let settings = db.settings
-        // Para Firebase v9+ usa esta configuración
-        settings.host = "firestore.googleapis.com/v1/projects/toctoc-1e18c/databases/logincloud"
+        settings.host = "firestore.googleapis.com"
         db.settings = settings
         
         setupFirestore()
     }
     
     private func setupFirestore() {
-        // Configuración adicional si es necesaria
         print("[Database] Configured for database: logincloud")
     }
     
@@ -33,12 +29,14 @@ public final class DatabaseService {
         uid: String,
         name: String?,
         email: String?,
-        photoURL: URL? = nil
+        photoURL: URL? = nil,
+        username: String? = nil
     ) {
         let userData: [String: Any] = [
             "uid": uid,
             "email": email ?? "",
             "name": name ?? "",
+            "username": username ?? "",
             "createdAt": Timestamp(date: Date()),
             "lastLogin": Timestamp(date: Date()),
             "photoURL": photoURL?.absoluteString ?? "",
@@ -52,6 +50,21 @@ public final class DatabaseService {
             } else {
                 print("[Database] User document created successfully for \(uid)")
             }
+        }
+    }
+    
+    // ✅ Verificar disponibilidad de username
+    public func isUsernameAvailable(_ username: String, completion: @escaping (Bool) -> Void) {
+        let query = db.collection(usersCollection).whereField("username", isEqualTo: username)
+        
+        query.getDocuments { snapshot, error in
+            if let error = error {
+                print("[Database] Error checking username: \(error.localizedDescription)")
+                completion(false)
+                return
+            }
+            
+            completion(snapshot?.isEmpty ?? true)
         }
     }
     
@@ -72,7 +85,8 @@ public final class DatabaseService {
     public func updateUserDocument(
         uid: String,
         name: String? = nil,
-        photoURL: URL? = nil
+        photoURL: URL? = nil,
+        username: String? = nil
     ) {
         var updateData: [String: Any] = [:]
         
@@ -82,6 +96,10 @@ public final class DatabaseService {
         
         if let photoURL = photoURL {
             updateData["photoURL"] = photoURL.absoluteString
+        }
+        
+        if let username = username {
+            updateData["username"] = username
         }
         
         updateData["lastUpdated"] = Timestamp(date: Date())
@@ -117,7 +135,7 @@ public final class DatabaseService {
         }
     }
     
-    // MARK: - Observar cambios del usuario (para perfiles en tiempo real)
+    // MARK: - Observar cambios del usuario
     public func observeUser(
         uid: String,
         handler: @escaping (Result<[String: Any], Error>) -> Void
@@ -150,7 +168,7 @@ public final class DatabaseService {
         }
     }
     
-    // MARK: - Eliminar usuario (para funcionalidad de borrar cuenta)
+    // MARK: - Eliminar usuario
     public func deleteUserDocument(uid: String, completion: @escaping (Error?) -> Void) {
         db.collection(usersCollection).document(uid).delete { error in
             if let error = error {

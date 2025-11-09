@@ -1,0 +1,24 @@
+
+
+
+COMANDO LISTAR FILE TREE;
+
+
+find . \
+  -not -path "*/.git/*" \
+  -not -path "*/xcuserdata/*" \
+  -not -path "*/DerivedData/*" \
+  -not -path "*/Pods/*" \
+  -not -path "*/food.xcodeproj/*" \
+  -not -path "*/food/Assets.xcassets/*" \
+  -not -name "food.xcodeproj" \
+  -not -name "Config.xcconfig" \
+  -not -name ".DS_Store" \
+  -print | sed 's|^\./||' | sort
+
+
+
+
+
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
