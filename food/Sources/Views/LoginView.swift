@@ -21,13 +21,14 @@ fileprivate extension PasswordStrength.StrengthLevel {
 
 // MARK: - Focus Field Enum
 private enum FocusField: Hashable {
-    case firstName, lastName, email, username, password, confirmPassword, phone
+    case firstName, lastName, email, emailOrUsername, username, password, confirmPassword, phone
 }
 
 // MARK: - Main Login View
 struct LoginView: View {
     @StateObject private var auth = AuthService.shared
-    @State private var email = ""
+    @State private var emailOrUsername = ""  // Solo para login
+    @State private var email = ""            // Específico para registro
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var firstName = ""
@@ -41,9 +42,8 @@ struct LoginView: View {
     @State private var alertMessage = ""
     
     @State private var passwordStrength: PasswordStrength?
+    @State private var loginType: AuthService.LoginType = .unknown
     
-    // ✅ NUEVO: Para manejar el scroll automático
-    @State private var scrollProxy: ScrollViewProxy?
     @FocusState private var focusedField: FocusField?
     
     var body: some View {
@@ -122,12 +122,34 @@ struct LoginView: View {
     // MARK: - Subviews
     private var signInView: some View {
         VStack(spacing: 15) {
-            TextField("Email", text: $email)
+            // ✅ CORREGIDO: Campo unificado para email/username (solo login)
+            TextField("Email o nombre de usuario", text: $emailOrUsername)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
-                .keyboardType(.emailAddress)
                 .autocapitalization(.none)
-                .textContentType(.emailAddress)
-                .focused($focusedField, equals: .email)
+                .textContentType(.username)
+                .focused($focusedField, equals: .emailOrUsername)
+                .onChange(of: emailOrUsername) { _, newValue in
+                    loginType = auth.identifyLoginType(newValue)
+                }
+                .overlay(
+                    Group {
+                        if loginType != .unknown {
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(loginTypeColor, lineWidth: 1)
+                                .padding(.horizontal, -4)
+                                .padding(.vertical, -8)
+                        }
+                    }
+                )
+            
+            // ✅ MEJORADO: Mensaje contextual
+            if loginType != .unknown {
+                Text(loginTypeMessage)
+                    .font(.caption)
+                    .foregroundColor(loginTypeColor)
+                    .padding(.leading, 10)
+                    .transition(.opacity)
+            }
             
             SecureField("Contraseña", text: $password)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -135,7 +157,7 @@ struct LoginView: View {
                 .focused($focusedField, equals: .password)
             
             Button(action: {
-                auth.signInWithEmail(email: email, password: password)
+                auth.signInWithEmailOrUsername(identifier: emailOrUsername, password: password)
             }) {
                 Text("Iniciar Sesión")
                     .frame(maxWidth: .infinity)
@@ -167,7 +189,7 @@ struct LoginView: View {
                             .id(FocusField.lastName)
                     }
                     
-                    // Account Information
+                    // ✅ CORREGIDO: Campo de email específico para registro
                     TextField("Email", text: $email)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .keyboardType(.emailAddress)
@@ -201,7 +223,7 @@ struct LoginView: View {
                     
                     usernameValidationView
                     
-                    // ✅ MEJORADO: Password Section con scroll automático
+                    // ✅ CORREGIDO: Password Section con campo email correcto
                     VStack(alignment: .leading, spacing: 10) {
                         SecureField("Contraseña", text: $password)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -209,9 +231,10 @@ struct LoginView: View {
                             .focused($focusedField, equals: .password)
                             .id(FocusField.password)
                             .onChange(of: password) { _, newPass in
+                                // ✅ CORREGIDO: Usar email específico del registro
                                 passwordStrength = auth.evaluatePasswordStrength(newPass, email: email, username: username)
                                 
-                                // ✅ Scroll automático cuando aparece el feedback
+                                // Scroll automático cuando aparece el feedback
                                 if !newPass.isEmpty && passwordStrength != nil {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -226,7 +249,7 @@ struct LoginView: View {
                         }
                     }
                     
-                    // ✅ MEJORADO: Password Confirmation con scroll automático
+                    // ✅ CORREGIDO: Password Confirmation
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
                             SecureField("Confirmar contraseña", text: $confirmPassword)
@@ -241,7 +264,7 @@ struct LoginView: View {
                                 .focused($focusedField, equals: .confirmPassword)
                                 .id(FocusField.confirmPassword)
                                 .onChange(of: confirmPassword) { _, newValue in
-                                    // ✅ Scroll automático cuando se empieza a confirmar
+                                    // Scroll automático cuando se empieza a confirmar
                                     if !newValue.isEmpty {
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                             withAnimation(.easeInOut(duration: 0.3)) {
@@ -296,7 +319,7 @@ struct LoginView: View {
                 .padding()
             }
             .onAppear {
-                scrollProxy = proxy
+                // scrollProxy = proxy // Removido por redundancia
             }
             // ✅ NUEVO: Manejar el teclado automáticamente
             .onChange(of: focusedField) { _, newField in
@@ -337,72 +360,6 @@ struct LoginView: View {
                 return
             }
             checkUsernameAvailability(newUsername)
-        }
-    }
-    
-    private var passwordSectionView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SecureField("Contraseña", text: $password)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .textContentType(.newPassword)
-                .focused($focusedField, equals: .password)
-                .id(FocusField.password)
-                .onChange(of: password) { _, newPass in
-                    passwordStrength = auth.evaluatePasswordStrength(newPass, email: email, username: username)
-                    
-                    // Scroll automático cuando aparece el feedback
-                    if !newPass.isEmpty && passwordStrength != nil {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            scrollProxy?.scrollTo(FocusField.password, anchor: .center)
-                        }
-                    }
-                }
-            
-            if let strength = passwordStrength {
-                PasswordStrengthView(strength: strength)
-            }
-        }
-    }
-    
-    private var passwordConfirmationView: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                SecureField("Confirmar contraseña", text: $confirmPassword)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(borderColor, lineWidth: 1)
-                            .padding(.horizontal, -4)
-                            .padding(.vertical, -8)
-                    )
-                    .textContentType(.newPassword)
-                    .focused($focusedField, equals: .confirmPassword)
-                    .id(FocusField.confirmPassword)
-                    .onChange(of: confirmPassword) { _, newValue in
-                        // Scroll automático cuando se empieza a confirmar
-                        if !newValue.isEmpty {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                scrollProxy?.scrollTo(FocusField.confirmPassword, anchor: .center)
-                            }
-                        }
-                    }
-                
-                if !confirmPassword.isEmpty {
-                    if passwordsMatch {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.red)
-                    }
-                }
-            }
-            
-            if !confirmPassword.isEmpty && !passwordsMatch {
-                Text("Las contraseñas no coinciden")
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
         }
     }
     
@@ -530,6 +487,22 @@ struct LoginView: View {
     }
     
     // MARK: - Computed Properties
+    private var loginTypeColor: Color {
+        switch loginType {
+        case .email: return .green
+        case .username: return .blue
+        case .unknown: return .gray
+        }
+    }
+    
+    private var loginTypeMessage: String {
+        switch loginType {
+        case .email: return "Identificador de tipo: email"
+        case .username: return "Identificador de tipo: nombre de usuario"
+        case .unknown: return ""
+        }
+    }
+    
     private var passwordsMatch: Bool {
         !password.isEmpty && !confirmPassword.isEmpty && password == confirmPassword
     }
@@ -549,15 +522,16 @@ struct LoginView: View {
     }
     
     private var isSignInFormValid: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !emailOrUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !password.isEmpty
     }
     
+    // ✅ CORREGIDO: Validación correcta para registro
     private var isSignUpFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        isValidEmail(email) &&
+        auth.isValidEmail(email) &&  // ← Ahora valida el campo email correcto
         !password.isEmpty &&
         password == confirmPassword &&
         meetsMinimumRequirements &&
@@ -567,7 +541,7 @@ struct LoginView: View {
     
     // MARK: - Helper Methods
     private func resetSignUpFields() {
-        email = ""
+        email = ""            // Resetear email de registro
         password = ""
         confirmPassword = ""
         firstName = ""
@@ -578,11 +552,14 @@ struct LoginView: View {
         phoneNumber = ""
         passwordStrength = nil
         focusedField = nil
+        loginType = .unknown
+        // NO resetear emailOrUsername para mantener el login
     }
     
     private func registerUser() {
         guard isSignUpFormValid else { return }
         
+        // ✅ CORREGIDO: Usar el campo email específico
         auth.signUpWithEmail(
             email: email,
             password: password,
@@ -590,12 +567,6 @@ struct LoginView: View {
             lastName: lastName,
             username: username
         )
-    }
-    
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailRegEx = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
-        let emailPred = NSPredicate(format:"SELF MATCHES %@", emailRegEx)
-        return emailPred.evaluate(with: email)
     }
     
     private func checkUsernameAvailability(_ username: String) {

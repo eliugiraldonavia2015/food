@@ -39,3 +39,25 @@ porque, me daras el codigo completo corregido y actualizado para cumplir los
 objetivos de esta etapa o incluso si es requeriod por profesionalismo anadir 
 uno que otro sin salirte del objetivo de esta etapa.
 
+
+
+
+
+
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+
+
+
+
+COMANDO PARA VER CAMBIOS Y SEGUIR CON LA SIGUIENTE ETAPA TENIENDO EN CUENTA
+LOS CAMBIOS REALIZADOS;
+
+
+
+
+Para lo que era necesario para esta etapa actual, ya realice los cambios, use el codigo que me sugeriste y lo mejore, teniendo en cuenta lo hecho en las etapas anteriorres y las funcionalidades actuales, revisa que no rompas nada. ten en cuenta que esto ya esta probado y no me ha dado problemas. recuerda seguir los principios de programacion y ser profesional. que etapa sigue, y cuales son sus objetivos?
+cuantas etapas nos faltan? cual es el objetivo de la fase (que incluye todas las etapas)
+que archivos requieres ver antes de avanzar?
+te voy a pasar los archivos cambuados en esta etapa, los analizaras y seguiras con la siguiente etapa y sus obejtivos neniendo en cuenta los cambios que yo ya hice y que ya son funcionales:

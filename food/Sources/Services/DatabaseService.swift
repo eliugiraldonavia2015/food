@@ -1,3 +1,4 @@
+// food/food/Sources/Services/DatabaseService.swift
 import FirebaseFirestore
 import FirebaseAuth
 import Foundation
@@ -9,10 +10,10 @@ public final class DatabaseService {
     private let usersCollection = "users"
     
     private init() {
-        // ✅ CORRECCIÓN: Especificar explícitamente la base de datos por nombre
+        // ✅ CORRECCIÓN: Especificar la misma base de datos
         self.db = Firestore.firestore(database: "logincloud")
         
-        // ✅ CORRECCIÓN: Configuración correcta del host (solo dominio)
+        // ✅ CORRECCIÓN: Configuración correcta del host
         let settings = db.settings
         settings.host = "firestore.googleapis.com"
         db.settings = settings
@@ -53,7 +54,27 @@ public final class DatabaseService {
         }
     }
     
-    // ✅ Verificar disponibilidad de username
+    // MARK: - Obtener email por username
+    public func getEmailForUsername(username: String, completion: @escaping (String?) -> Void) {
+        let query = db.collection(usersCollection).whereField("username", isEqualTo: username)
+        
+        query.getDocuments { snapshot, error in
+            if let error = error {
+                print("[Database] Error checking username: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+            
+            guard let document = snapshot?.documents.first else {
+                completion(nil)
+                return
+            }
+            
+            completion(document.get("email") as? String)
+        }
+    }
+    
+    // MARK: - Verificar disponibilidad de username
     public func isUsernameAvailable(_ username: String, completion: @escaping (Bool) -> Void) {
         let query = db.collection(usersCollection).whereField("username", isEqualTo: username)
         

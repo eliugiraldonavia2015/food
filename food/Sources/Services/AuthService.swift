@@ -146,6 +146,30 @@ public final class AuthService: ObservableObject {
         }
     }
     
+    // MARK: - Email/Username Sign-In (ETAPA 5)
+    public func signInWithEmailOrUsername(identifier: String, password: String) {
+        isLoading = true
+        errorMessage = nil
+        
+        // Determinar si es email o username
+        if isValidEmail(identifier) {
+            signInWithEmail(email: identifier, password: password)
+        } else {
+            // Buscar email por username
+            DatabaseService.shared.getEmailForUsername(username: identifier) { [weak self] email in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    guard let email = email else {
+                        self.handleAuthError("Usuario no encontrado")
+                        return
+                    }
+                    
+                    self.signInWithEmail(email: email, password: password)
+                }
+            }
+        }
+    }
+    
     public func signInWithEmail(email: String, password: String) {
         isLoading = true
         errorMessage = nil
@@ -157,6 +181,37 @@ public final class AuthService: ObservableObject {
                 }
             }
         }
+    }
+    
+    // MARK: - Email/Username Detection (ETAPA 5)
+    public func identifyLoginType(_ input: String) -> LoginType {
+        if isValidEmail(input) {
+            return .email
+        } else if isValidUsername(input) {
+            return .username
+        } else {
+            return .unknown
+        }
+    }
+    
+    public func isValidEmail(_ email: String) -> Bool {
+        let emailRegEx = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+        let emailPred = NSPredicate(format:"SELF MATCHES %@", emailRegEx)
+        return emailPred.evaluate(with: email)
+    }
+    
+    public func isValidUsername(_ username: String) -> Bool {
+        // Permite letras, números, guiones y puntos (3-30 caracteres)
+        let usernameRegEx = "^[a-zA-Z0-9.-]{3,30}$"
+        let usernamePred = NSPredicate(format:"SELF MATCHES %@", usernameRegEx)
+        return usernamePred.evaluate(with: username)
+    }
+    
+    // MARK: - User Management
+    public enum LoginType {
+        case email
+        case username
+        case unknown
     }
     
     public func signUpWithEmail(
@@ -344,9 +399,9 @@ public final class AuthService: ObservableObject {
         case AuthErrorCode.wrongPassword.rawValue:
             errorMessage = "Contraseña incorrecta"
         case AuthErrorCode.userNotFound.rawValue:
-            errorMessage = "No existe una cuenta con este email"
+            errorMessage = "No existe una cuenta con este identificador"
         case AuthErrorCode.invalidEmail.rawValue:
-            errorMessage = "El email no es válido"
+            errorMessage = "El identificador no es válido"
         case AuthErrorCode.networkError.rawValue:
             errorMessage = "Error de conexión. Verifica tu conexión a internet"
         case AuthErrorCode.tooManyRequests.rawValue:
