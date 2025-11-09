@@ -1,4 +1,3 @@
-// food/food/Sources/Views/LoginView.swift
 import SwiftUI
 import GoogleSignIn
 import UIKit
@@ -7,7 +6,6 @@ struct LoginView: View {
     @StateObject private var auth = AuthService.shared
     @State private var email = ""
     @State private var password = ""
-    @State private var name = ""
     @State private var isShowingSignUp = false
     @State private var showAlert = false
     @State private var alertMessage = ""
@@ -78,19 +76,37 @@ struct LoginView: View {
                     showAlert = true
                 }
             }
+            .onChange(of: isShowingSignUp) { _, _ in
+                // Reset fields when switching between login/signup
+                email = ""
+                password = ""
+            }
         }
     }
     
     var signInView: some View {
         VStack(spacing: 15) {
-            Text("Próximamente podrás iniciar con correo")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color(.systemGray6))
-                .cornerRadius(10)
+            TextField("Email", text: $email)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .keyboardType(.emailAddress)
+                .autocapitalization(.none)
+                .textContentType(.emailAddress)
+            
+            SecureField("Contraseña", text: $password)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .textContentType(.password)
+            
+            Button(action: {
+                auth.signInWithEmail(email: email, password: password)
+            }) {
+                Text("Iniciar Sesión")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isFormValid ? Color.blue : Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+            }
+            .disabled(!isFormValid)
         }
     }
     
@@ -107,11 +123,16 @@ struct LoginView: View {
         }
     }
     
+    private var isFormValid: Bool {
+        // Basic validation - Firebase will do more robust validation
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !password.isEmpty
+    }
+    
     private func handleGoogleSignIn() {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController
         else {
-            // ✅ CORRECCIÓN: Usar el método público en lugar de handleAuthError que es privado
             alertMessage = "No se pudo obtener el contexto de la ventana"
             showAlert = true
             return
@@ -127,7 +148,6 @@ struct GoogleSignInButton: View {
     var body: some View {
         Button(action: action) {
             HStack {
-                // ✅ VERIFICADO: Asegúrate de tener "google" en Assets.xcassets
                 Image("google")
                     .resizable()
                     .scaledToFit()

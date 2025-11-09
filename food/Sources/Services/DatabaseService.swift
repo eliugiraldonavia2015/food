@@ -1,4 +1,3 @@
-// food/food/Sources/Services/DatabaseService.swift
 import FirebaseFirestore
 import FirebaseAuth
 import Foundation
@@ -6,21 +5,27 @@ import Foundation
 public final class DatabaseService {
     public static let shared = DatabaseService()
     
-    private let db = Firestore.firestore()
+    // ✅ ACTUALIZADO: Configurar para usar 'logincloud'
+    private let db: Firestore
+    
     private let usersCollection = "users"
     
     private init() {
+        // Inicializar Firestore
+        self.db = Firestore.firestore()
+        
+        // Configurar para usar la base de datos específica
+        let settings = db.settings
+        // Para Firebase v9+ usa esta configuración
+        settings.host = "firestore.googleapis.com/v1/projects/toctoc-1e18c/databases/logincloud"
+        db.settings = settings
+        
         setupFirestore()
     }
     
     private func setupFirestore() {
-        let settings = FirestoreSettings()
-        
-        // ✅ CONFIGURACIÓN SIMPLIFICADA Y COMPATIBLE
-        // Firebase maneja automáticamente la persistencia por defecto
-        // No necesitamos configurar cacheSettings manualmente
-        
-        db.settings = settings
+        // Configuración adicional si es necesaria
+        print("[Database] Configured for database: logincloud")
     }
     
     // MARK: - Crear documento de usuario

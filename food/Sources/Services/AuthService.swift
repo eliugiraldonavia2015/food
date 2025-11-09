@@ -1,6 +1,6 @@
-// food/food/Sources/Services/AuthService.swift
 import Foundation
 import FirebaseAuth
+import FirebaseFirestore
 import GoogleSignIn
 import UIKit
 import Combine
@@ -33,9 +33,17 @@ public final class AuthService: ObservableObject {
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var errorMessage: String?
     
+    // ✅ CORREGIDO: Usar la sintaxis correcta para tu versión de Firebase
+    private let firestore = Firestore.firestore()
+    
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     
     private init() {
+        // ✅ CONFIGURAR: Especificar la base de datos 'logincloud'
+        let settings = firestore.settings
+        settings.host = "firestore.googleapis.com/v1/projects/toctoc-1e18c/databases/logincloud"
+        firestore.settings = settings
+        
         authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
             DispatchQueue.main.async {
                 self?.updateAuthState(with: firebaseUser)
@@ -49,6 +57,7 @@ public final class AuthService: ObservableObject {
         }
     }
     
+    // MARK: - Google Sign-In
     public func signInWithGoogle(presentingVC: UIViewController) {
         isLoading = true
         errorMessage = nil
@@ -68,7 +77,6 @@ public final class AuthService: ObservableObject {
                 return
             }
             
-            // ✅ CORRECCIÓN: Extraer tokens correctamente
             guard let idToken = signInResult.user.idToken?.tokenString else {
                 self.handleAuthError("Invalid Google ID token")
                 return
@@ -83,7 +91,6 @@ public final class AuthService: ObservableObject {
             
             Auth.auth().signIn(with: credential) { [weak self] _, error in
                 DispatchQueue.main.async {
-                    self?.isLoading = false
                     if let error = error {
                         self?.handleAuthError("Firebase Error: \(error.localizedDescription)")
                     }
@@ -92,6 +99,43 @@ public final class AuthService: ObservableObject {
         }
     }
     
+    // MARK: - Email/Password Sign-In
+    public func signInWithEmail(email: String, password: String) {
+        isLoading = true
+        errorMessage = nil
+        
+        Auth.auth().signIn(withEmail: email, password: password) { [weak self] _, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.handleSignInError(error)
+                }
+            }
+        }
+    }
+    
+    private func handleSignInError(_ error: Error) {
+        let nsError = error as NSError
+        let errorMessage: String
+        
+        switch nsError.code {
+        case AuthErrorCode.wrongPassword.rawValue:
+            errorMessage = "Contraseña incorrecta"
+        case AuthErrorCode.userNotFound.rawValue:
+            errorMessage = "No existe una cuenta con este email"
+        case AuthErrorCode.invalidEmail.rawValue:
+            errorMessage = "El email no es válido"
+        case AuthErrorCode.networkError.rawValue:
+            errorMessage = "Error de conexión. Verifica tu conexión a internet"
+        case AuthErrorCode.tooManyRequests.rawValue:
+            errorMessage = "Demasiados intentos. Por favor, intenta más tarde"
+        default:
+            errorMessage = "Error al iniciar sesión: \(error.localizedDescription)"
+        }
+        
+        handleAuthError(errorMessage)
+    }
+    
+    // MARK: - Common Methods
     public func signOut() {
         do {
             try Auth.auth().signOut()
@@ -101,14 +145,11 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // ✅ CORRECCIÓN MEJORADA: Integración inteligente con DatabaseService
     private func updateAuthState(with firebaseUser: User?) {
         DispatchQueue.main.async {
             if let firebaseUser = firebaseUser {
-                // ✅ INTEGRACIÓN INTELIGENTE: Verificar si existe antes de crear
                 DatabaseService.shared.userDocumentExists(uid: firebaseUser.uid) { exists in
                     if !exists {
-                        // Crear documento solo si no existe
                         DatabaseService.shared.createUserDocument(
                             uid: firebaseUser.uid,
                             name: firebaseUser.displayName,
@@ -116,7 +157,6 @@ public final class AuthService: ObservableObject {
                             photoURL: firebaseUser.photoURL
                         )
                     } else {
-                        // Solo actualizar último login si ya existe
                         DatabaseService.shared.updateLastLogin(uid: firebaseUser.uid)
                     }
                 }
@@ -136,7 +176,6 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // ✅ CORRECCIÓN: Cambiar a internal/public para que las vistas puedan usarlo
     public func handleAuthError(_ message: String) {
         print("[Auth Error] \(message)")
         DispatchQueue.main.async {
@@ -145,18 +184,16 @@ public final class AuthService: ObservableObject {
         }
     }
     
-    // MARK: - Métodos adicionales para gestión de usuario
+    // MARK: - User Management
     public func updateUserProfile(name: String? = nil, photoURL: URL? = nil) {
         guard let currentUser = Auth.auth().currentUser else { return }
         
-        // Actualizar en DatabaseService
         DatabaseService.shared.updateUserDocument(
             uid: currentUser.uid,
             name: name,
             photoURL: photoURL
         )
         
-        // Actualizar localmente si es necesario
         if let name = name {
             self.user = AppUser(
                 uid: currentUser.uid,
