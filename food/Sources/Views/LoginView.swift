@@ -3,6 +3,12 @@ import SwiftUI
 import GoogleSignIn
 import UIKit
 
+// MARK: - AuthFlow Enum
+enum AuthFlow {
+    case main
+    case phone
+}
+
 // MARK: - UI Helper Extensions
 fileprivate extension PasswordStrength.StrengthLevel {
     var uiColor: Color {
@@ -21,14 +27,14 @@ fileprivate extension PasswordStrength.StrengthLevel {
 
 // MARK: - Focus Field Enum
 private enum FocusField: Hashable {
-    case firstName, lastName, email, emailOrUsername, username, password, confirmPassword, phone
+    case firstName, lastName, email, emailOrUsername, username, password, confirmPassword, phone, phoneVerificationCode
 }
 
 // MARK: - Main Login View
 struct LoginView: View {
     @StateObject private var auth = AuthService.shared
-    @State private var emailOrUsername = ""  // Solo para login
-    @State private var email = ""            // Específico para registro
+    @State private var emailOrUsername = ""
+    @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var firstName = ""
@@ -36,13 +42,19 @@ struct LoginView: View {
     @State private var username = ""
     @State private var isUsernameAvailable = true
     @State private var checkingUsername = false
-    @State private var phoneNumber = ""
+    @State private var phoneNumber = "" // Para el flujo de teléfono
+    @State private var verificationCode = ""
     @State private var isShowingSignUp = false
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var canResendCode = false
+    @State private var resendTimer = 60
+    @State private var resendTimerTask: Task<Void, Never>?
     
     @State private var passwordStrength: PasswordStrength?
     @State private var loginType: AuthService.LoginType = .unknown
+    
+    @State private var currentAuthFlow: AuthFlow = .main
     
     @FocusState private var focusedField: FocusField?
     
@@ -51,35 +63,10 @@ struct LoginView: View {
             VStack(spacing: 30) {
                 Spacer()
                 
-                Image(systemName: "fork.knife.circle.fill")
-                    .font(.system(size: 100))
-                    .foregroundColor(.orange)
-                
-                Text("Bienvenido a Food")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                
-                Text("Inicia sesión para continuar")
-                    .foregroundColor(.secondary)
-                
-                if isShowingSignUp {
-                    signUpView
+                if currentAuthFlow == .phone {
+                    phoneAuthFlowView
                 } else {
-                    signInView
-                }
-                
-                GoogleSignInButton {
-                    handleGoogleSignIn()
-                }
-                .frame(height: 50)
-                .padding(.horizontal)
-                
-                Button(action: {
-                    isShowingSignUp.toggle()
-                    resetSignUpFields()
-                }) {
-                    Text(isShowingSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate")
-                        .foregroundColor(.blue)
+                    mainAuthView
                 }
                 
                 Spacer()
@@ -116,13 +103,258 @@ struct LoginView: View {
             .onChange(of: isShowingSignUp) { _, _ in
                 resetSignUpFields()
             }
+            .onChange(of: auth.phoneAuthState) { oldState, newState in
+                handlePhoneAuthStateChange(newState)
+            }
+            .onDisappear {
+                resendTimerTask?.cancel()
+            }
         }
     }
     
-    // MARK: - Subviews
+    // MARK: - Main Auth View
+    private var mainAuthView: some View {
+        VStack(spacing: 30) {
+            Image(systemName: "fork.knife.circle.fill")
+                .font(.system(size: 100))
+                .foregroundColor(.orange)
+            
+            Text("Bienvenido a Food")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            
+            Text("Inicia sesión para continuar")
+                .foregroundColor(.secondary)
+            
+            if isShowingSignUp {
+                signUpView
+            } else {
+                signInView
+            }
+            
+            // Botones de autenticación social
+            VStack(spacing: 12) {
+                GoogleSignInButton {
+                    handleGoogleSignIn()
+                }
+                .frame(height: 50)
+                
+                PhoneSignInButton {
+                    withAnimation {
+                        currentAuthFlow = .phone
+                    }
+                }
+                .frame(height: 50)
+            }
+            .padding(.horizontal)
+            
+            Button(action: {
+                isShowingSignUp.toggle()
+                resetSignUpFields()
+            }) {
+                Text(isShowingSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate")
+                    .foregroundColor(.blue)
+            }
+        }
+    }
+    
+    // MARK: - Phone Auth Flow
+    private var phoneAuthFlowView: some View {
+        VStack(spacing: 20) {
+            phoneAuthHeader
+            
+            if auth.phoneAuthState.isAwaitingCode {
+                phoneVerificationView
+            } else {
+                phoneNumberInputView
+            }
+            
+            Spacer()
+            
+            if !auth.phoneAuthState.isAwaitingCode {
+                backToMainLoginButton
+            }
+        }
+        .padding()
+    }
+    
+    private var phoneAuthHeader: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "phone.circle.fill")
+                .font(.system(size: 80))
+                .foregroundColor(.green)
+            
+            Text("Iniciar con Teléfono")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text("Ingresa tu número para recibir un código de verificación")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+    
+    private var phoneNumberInputView: some View {
+        VStack(spacing: 20) {
+            // Campo de teléfono con formato internacional
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Número de teléfono")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                HStack {
+                    Text("+593")
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 12)
+                    
+                    TextField("99 123 4567", text: $phoneNumber)
+                        .keyboardType(.numberPad)
+                        .textContentType(.telephoneNumber)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(8)
+                        .onChange(of: phoneNumber) { _, newValue in
+                            // Formatear automáticamente
+                            formatPhoneNumber(newValue)
+                        }
+                }
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+                
+                if !phoneNumber.isEmpty && !isValidPhoneNumber {
+                    Text("Por favor ingresa un número válido")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            
+            Button(action: sendPhoneVerificationCode) {
+                HStack {
+                    if auth.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "message.fill")
+                    }
+                    
+                    Text("Enviar código SMS")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(isValidPhoneNumber ? Color.green : Color.gray)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .disabled(!isValidPhoneNumber || auth.isLoading)
+            
+            // Información sobre costos
+            Text("Pueden aplicarse cargos por mensajes de texto")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+    
+    private var phoneVerificationView: some View {
+        VStack(spacing: 20) {
+            verificationHeader
+            
+            verificationCodeField
+            
+            resendTimerView
+            
+            resendCodeButton
+        }
+        .padding()
+    }
+    
+    private var verificationHeader: some View {
+        VStack(spacing: 8) {
+            Text("Verificación por SMS")
+                .font(.headline)
+                .fontWeight(.bold)
+            
+            if case .awaitingVerification(let phoneNumber) = auth.phoneAuthState {
+                Text("Hemos enviado un código de 6 dígitos a:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(phoneNumber)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+            } else {
+                Text("Hemos enviado un código de 6 dígitos a tu teléfono")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .multilineTextAlignment(.center)
+    }
+    
+    private var verificationCodeField: some View {
+        TextField("Código de verificación", text: $verificationCode)
+            .textFieldStyle(RoundedBorderTextFieldStyle())
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .focused($focusedField, equals: .phoneVerificationCode)
+            .onChange(of: verificationCode) { _, newValue in
+                // Limitar a 6 dígitos y auto-verificar
+                let filtered = newValue.filter { $0.isNumber }
+                if filtered.count > 6 {
+                    verificationCode = String(filtered.prefix(6))
+                } else {
+                    verificationCode = filtered
+                }
+                
+                if verificationCode.count == 6 {
+                    auth.verifyCode(verificationCode)
+                }
+            }
+    }
+    
+    private var resendTimerView: some View {
+        Group {
+            if !canResendCode {
+                Text("Puedes reenviar el código en \(resendTimer) segundos")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+        }
+    }
+    
+    private var resendCodeButton: some View {
+        Button(action: handleResendCode) {
+            HStack {
+                Image(systemName: "arrow.clockwise")
+                Text("Reenviar código")
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(canResendCode ? Color.blue : Color.gray)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+        }
+        .disabled(!canResendCode || auth.isLoading)
+    }
+    
+    private var backToMainLoginButton: some View {
+        Button(action: {
+            withAnimation {
+                currentAuthFlow = .main
+            }
+        }) {
+            Text("← Volver a otras opciones")
+                .foregroundColor(.blue)
+                .font(.subheadline)
+        }
+    }
+    
+    // MARK: - Sign In View (para el flujo principal)
     private var signInView: some View {
         VStack(spacing: 15) {
-            // ✅ CORREGIDO: Campo unificado para email/username (solo login)
             TextField("Email o nombre de usuario", text: $emailOrUsername)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .autocapitalization(.none)
@@ -142,7 +374,6 @@ struct LoginView: View {
                     }
                 )
             
-            // ✅ MEJORADO: Mensaje contextual
             if loginType != .unknown {
                 Text(loginTypeMessage)
                     .font(.caption)
@@ -166,10 +397,11 @@ struct LoginView: View {
                     .foregroundColor(.white)
                     .cornerRadius(10)
             }
-            .disabled(!isSignInFormValid)
+            .disabled(!isSignInFormValid || auth.isLoading)
         }
     }
     
+    // MARK: - Sign Up View (para el flujo principal)
     private var signUpView: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -189,7 +421,6 @@ struct LoginView: View {
                             .id(FocusField.lastName)
                     }
                     
-                    // ✅ CORREGIDO: Campo de email específico para registro
                     TextField("Email", text: $email)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .keyboardType(.emailAddress)
@@ -223,7 +454,6 @@ struct LoginView: View {
                     
                     usernameValidationView
                     
-                    // ✅ CORREGIDO: Password Section con campo email correcto
                     VStack(alignment: .leading, spacing: 10) {
                         SecureField("Contraseña", text: $password)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -231,17 +461,7 @@ struct LoginView: View {
                             .focused($focusedField, equals: .password)
                             .id(FocusField.password)
                             .onChange(of: password) { _, newPass in
-                                // ✅ CORREGIDO: Usar email específico del registro
                                 passwordStrength = auth.evaluatePasswordStrength(newPass, email: email, username: username)
-                                
-                                // Scroll automático cuando aparece el feedback
-                                if !newPass.isEmpty && passwordStrength != nil {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo(FocusField.password, anchor: .center)
-                                        }
-                                    }
-                                }
                             }
                         
                         if let strength = passwordStrength {
@@ -249,7 +469,6 @@ struct LoginView: View {
                         }
                     }
                     
-                    // ✅ CORREGIDO: Password Confirmation
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
                             SecureField("Confirmar contraseña", text: $confirmPassword)
@@ -263,16 +482,6 @@ struct LoginView: View {
                                 .textContentType(.newPassword)
                                 .focused($focusedField, equals: .confirmPassword)
                                 .id(FocusField.confirmPassword)
-                                .onChange(of: confirmPassword) { _, newValue in
-                                    // Scroll automático cuando se empieza a confirmar
-                                    if !newValue.isEmpty {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                proxy.scrollTo(FocusField.confirmPassword, anchor: .center)
-                                            }
-                                        }
-                                    }
-                                }
                             
                             if !confirmPassword.isEmpty {
                                 if passwordsMatch {
@@ -292,13 +501,6 @@ struct LoginView: View {
                         }
                     }
                     
-                    // Optional Phone
-                    TextField("Teléfono (opcional)", text: $phoneNumber)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.phonePad)
-                        .focused($focusedField, equals: .phone)
-                        .id(FocusField.phone)
-                    
                     // Register Button
                     Button(action: registerUser) {
                         Text("Registrarse")
@@ -308,20 +510,15 @@ struct LoginView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
-                    .disabled(!isSignUpFormValid)
+                    .disabled(!isSignUpFormValid || auth.isLoading)
                     .padding(.top)
                     
-                    // Minimum Requirements Info
                     if !password.isEmpty {
                         minimumRequirementsView
                     }
                 }
                 .padding()
             }
-            .onAppear {
-                // scrollProxy = proxy // Removido por redundancia
-            }
-            // ✅ NUEVO: Manejar el teclado automáticamente
             .onChange(of: focusedField) { _, newField in
                 if let field = newField {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -486,11 +683,65 @@ struct LoginView: View {
         }
     }
     
+    // MARK: - Authentication Buttons
+    private struct PhoneSignInButton: View {
+        let action: () -> Void
+        
+        var body: some View {
+            Button(action: action) {
+                HStack {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 20))
+                    
+                    Text("Iniciar con teléfono")
+                        .fontWeight(.medium)
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color.white)
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.gray, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    private struct GoogleSignInButton: View {
+        let action: () -> Void
+        
+        var body: some View {
+            Button(action: action) {
+                HStack {
+                    Image("google")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
+                    
+                    Text("Iniciar con Google")
+                        .fontWeight(.medium)
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color.white)
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.gray, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
     // MARK: - Computed Properties
     private var loginTypeColor: Color {
         switch loginType {
         case .email: return .green
         case .username: return .blue
+        case .phone: return .purple
         case .unknown: return .gray
         }
     }
@@ -499,6 +750,7 @@ struct LoginView: View {
         switch loginType {
         case .email: return "Identificador de tipo: email"
         case .username: return "Identificador de tipo: nombre de usuario"
+        case .phone: return "Identificador de tipo: teléfono"
         case .unknown: return ""
         }
     }
@@ -526,12 +778,11 @@ struct LoginView: View {
         !password.isEmpty
     }
     
-    // ✅ CORREGIDO: Validación correcta para registro
     private var isSignUpFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        auth.isValidEmail(email) &&  // ← Ahora valida el campo email correcto
+        auth.isValidEmail(email) &&
         !password.isEmpty &&
         password == confirmPassword &&
         meetsMinimumRequirements &&
@@ -539,9 +790,14 @@ struct LoginView: View {
         isUsernameAvailable
     }
     
+    private var isValidPhoneNumber: Bool {
+        let fullNumber = "+593\(phoneNumber.filter { $0.isNumber })"
+        return auth.isValidPhoneNumber(fullNumber) && phoneNumber.count >= 8
+    }
+    
     // MARK: - Helper Methods
     private func resetSignUpFields() {
-        email = ""            // Resetear email de registro
+        email = ""
         password = ""
         confirmPassword = ""
         firstName = ""
@@ -549,17 +805,14 @@ struct LoginView: View {
         username = ""
         isUsernameAvailable = true
         checkingUsername = false
-        phoneNumber = ""
         passwordStrength = nil
         focusedField = nil
         loginType = .unknown
-        // NO resetear emailOrUsername para mantener el login
     }
     
     private func registerUser() {
         guard isSignUpFormValid else { return }
         
-        // ✅ CORREGIDO: Usar el campo email específico
         auth.signUpWithEmail(
             email: email,
             password: password,
@@ -581,10 +834,72 @@ struct LoginView: View {
         }
     }
     
+    private func formatPhoneNumber(_ input: String) {
+        let numbers = input.filter { $0.isNumber }
+        
+        if numbers.count <= 9 {
+            var formatted = ""
+            let count = numbers.count
+            
+            if count > 0 {
+                formatted = String(numbers.prefix(2))
+            }
+            if count > 2 {
+                formatted += " " + String(numbers.dropFirst(2).prefix(3))
+            }
+            if count > 5 {
+                formatted += " " + String(numbers.dropFirst(5).prefix(4))
+            }
+            
+            phoneNumber = formatted
+        } else {
+            phoneNumber = String(numbers.prefix(9))
+        }
+    }
+    
+    private func sendPhoneVerificationCode() {
+        guard isValidPhoneNumber else { return }
+        
+        let fullNumber = "+593\(phoneNumber.filter { $0.isNumber })"
+        
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            auth.handleAuthError("No se pudo obtener el contexto de la ventana")
+            return
+        }
+        
+        auth.sendVerificationCode(phoneNumber: fullNumber, presentingVC: rootViewController)
+        setupResendTimer()
+    }
+    
+    private func handleResendCode() {
+        guard canResendCode else { return }
+        sendPhoneVerificationCode()
+    }
+    
+    private func setupResendTimer() {
+        resendTimerTask?.cancel()
+        canResendCode = false
+        resendTimer = 60
+        
+        resendTimerTask = Task {
+            while resendTimer > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                if Task.isCancelled { return }
+                
+                await MainActor.run {
+                    resendTimer -= 1
+                    if resendTimer <= 0 {
+                        canResendCode = true
+                    }
+                }
+            }
+        }
+    }
+    
     private func handleGoogleSignIn() {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController
-        else {
+              let rootViewController = windowScene.windows.first?.rootViewController else {
             alertMessage = "No se pudo obtener el contexto de la ventana"
             showAlert = true
             return
@@ -592,33 +907,27 @@ struct LoginView: View {
         
         auth.signInWithGoogle(presentingVC: rootViewController)
     }
-}
-
-// MARK: - Google Sign In Button
-struct GoogleSignInButton: View {
-    let action: () -> Void
     
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image("google")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
-                
-                Text("Iniciar con Google")
-                    .fontWeight(.medium)
+    private func handlePhoneAuthStateChange(_ newState: AuthService.PhoneAuthState) {
+        switch newState {
+        case .awaitingVerification:
+            verificationCode = ""
+            focusedField = .phoneVerificationCode
+        case .idle, .error:
+            verificationCode = ""
+        case .verified:
+            // Limpiar campos después de verificación exitosa
+            phoneNumber = ""
+            verificationCode = ""
+            // Regresar al flujo principal después de verificación exitosa
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                withAnimation {
+                    currentAuthFlow = .main
+                }
             }
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(Color.white)
-            .cornerRadius(10)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.gray, lineWidth: 1)
-            )
+        default:
+            break
         }
-        .buttonStyle(.plain)
     }
 }
 

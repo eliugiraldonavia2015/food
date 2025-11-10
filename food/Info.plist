@@ -12,10 +12,17 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.478456051663-9mpltnnhosu5um9d8o8lmfu89vdsdtvc</string>
+				<string>app-1-478456051663-ios-5aacb96178c31cc62a84ba</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
 	<string>478456051663-9mpltnnhosu5um9d8o8lmfu89vdsdtvc.apps.googleusercontent.com</string>
+	<key>NSAppTransportSecurity</key>
+	<dict/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>
