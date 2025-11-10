@@ -1,19 +1,22 @@
-// food/food/Sources/Services/DatabaseService.swift
 import FirebaseFirestore
 import FirebaseAuth
 import Foundation
 
 public final class DatabaseService {
+    // MARK: - Singleton
     public static let shared = DatabaseService()
     
-    private let db: Firestore
+    // ✅ Hacemos `db` público solo para lectura (usado por AuthService)
+    public let db: Firestore
+    
+    // MARK: - Private constants
     private let usersCollection = "users"
     
     private init() {
-        // ✅ CORRECCIÓN: Especificar la misma base de datos
+        // ✅ Usa la misma base de datos central
         self.db = Firestore.firestore(database: "logincloud")
         
-        // ✅ CORRECCIÓN: Configuración correcta del host
+        // ✅ Configuración consistente del host
         let settings = db.settings
         settings.host = "firestore.googleapis.com"
         db.settings = settings
@@ -22,7 +25,7 @@ public final class DatabaseService {
     }
     
     private func setupFirestore() {
-        print("[Database] Configured for database: logincloud")
+        print("[Database] ✅ Configured for database: logincloud")
     }
     
     // MARK: - Crear documento de usuario
@@ -47,46 +50,43 @@ public final class DatabaseService {
         
         db.collection(usersCollection).document(uid).setData(userData) { error in
             if let error = error {
-                print("[Database] Error creating user document: \(error.localizedDescription)")
+                print("[Database] ❌ Error creating user document: \(error.localizedDescription)")
             } else {
-                print("[Database] User document created successfully for \(uid)")
+                print("[Database] ✅ User document created successfully for \(uid)")
             }
         }
     }
     
     // MARK: - Obtener email por username
     public func getEmailForUsername(username: String, completion: @escaping (String?) -> Void) {
-        let query = db.collection(usersCollection).whereField("username", isEqualTo: username)
-        
-        query.getDocuments { snapshot, error in
-            if let error = error {
-                print("[Database] Error checking username: \(error.localizedDescription)")
-                completion(nil)
-                return
+        db.collection(usersCollection)
+            .whereField("username", isEqualTo: username)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("[Database] ❌ Error checking username: \(error.localizedDescription)")
+                    completion(nil)
+                    return
+                }
+                guard let document = snapshot?.documents.first else {
+                    completion(nil)
+                    return
+                }
+                completion(document.get("email") as? String)
             }
-            
-            guard let document = snapshot?.documents.first else {
-                completion(nil)
-                return
-            }
-            
-            completion(document.get("email") as? String)
-        }
     }
     
     // MARK: - Verificar disponibilidad de username
     public func isUsernameAvailable(_ username: String, completion: @escaping (Bool) -> Void) {
-        let query = db.collection(usersCollection).whereField("username", isEqualTo: username)
-        
-        query.getDocuments { snapshot, error in
-            if let error = error {
-                print("[Database] Error checking username: \(error.localizedDescription)")
-                completion(false)
-                return
+        db.collection(usersCollection)
+            .whereField("username", isEqualTo: username)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("[Database] ❌ Error checking username: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+                completion(snapshot?.isEmpty ?? true)
             }
-            
-            completion(snapshot?.isEmpty ?? true)
-        }
     }
     
     // MARK: - Actualizar último login
@@ -97,7 +97,7 @@ public final class DatabaseService {
         
         db.collection(usersCollection).document(uid).updateData(updateData) { error in
             if let error = error {
-                print("[Database] Error updating last login: \(error.localizedDescription)")
+                print("[Database] ⚠️ Error updating last login: \(error.localizedDescription)")
             }
         }
     }
@@ -111,27 +111,18 @@ public final class DatabaseService {
     ) {
         var updateData: [String: Any] = [:]
         
-        if let name = name {
-            updateData["name"] = name
-        }
-        
-        if let photoURL = photoURL {
-            updateData["photoURL"] = photoURL.absoluteString
-        }
-        
-        if let username = username {
-            updateData["username"] = username
-        }
+        if let name = name { updateData["name"] = name }
+        if let photoURL = photoURL { updateData["photoURL"] = photoURL.absoluteString }
+        if let username = username { updateData["username"] = username }
         
         updateData["lastUpdated"] = Timestamp(date: Date())
-        
         guard !updateData.isEmpty else { return }
         
         db.collection(usersCollection).document(uid).updateData(updateData) { error in
             if let error = error {
-                print("[Database] Error updating user: \(error.localizedDescription)")
+                print("[Database] ❌ Error updating user: \(error.localizedDescription)")
             } else {
-                print("[Database] User updated successfully")
+                print("[Database] ✅ User updated successfully")
             }
         }
     }
@@ -146,12 +137,12 @@ public final class DatabaseService {
                 completion(.failure(error))
                 return
             }
-            
             guard let document = document, document.exists else {
-                completion(.failure(NSError(domain: "Database", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"])))
+                completion(.failure(
+                    NSError(domain: "Database", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"])
+                ))
                 return
             }
-            
             completion(.success(document.data() ?? [:]))
         }
     }
@@ -166,12 +157,12 @@ public final class DatabaseService {
                 handler(.failure(error))
                 return
             }
-            
             guard let snapshot = snapshot, snapshot.exists else {
-                handler(.failure(NSError(domain: "Database", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"])))
+                handler(.failure(
+                    NSError(domain: "Database", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"])
+                ))
                 return
             }
-            
             handler(.success(snapshot.data() ?? [:]))
         }
     }
@@ -180,11 +171,10 @@ public final class DatabaseService {
     public func userDocumentExists(uid: String, completion: @escaping (Bool) -> Void) {
         db.collection(usersCollection).document(uid).getDocument { document, error in
             if let error = error {
-                print("[Database] Error checking user document: \(error.localizedDescription)")
+                print("[Database] ⚠️ Error checking user document: \(error.localizedDescription)")
                 completion(false)
                 return
             }
-            
             completion(document?.exists ?? false)
         }
     }
@@ -193,9 +183,30 @@ public final class DatabaseService {
     public func deleteUserDocument(uid: String, completion: @escaping (Error?) -> Void) {
         db.collection(usersCollection).document(uid).delete { error in
             if let error = error {
-                print("[Database] Error deleting user document: \(error.localizedDescription)")
+                print("[Database] ⚠️ Error deleting user document: \(error.localizedDescription)")
             } else {
-                print("[Database] User document deleted successfully")
+                print("[Database] 🗑️ User document deleted successfully")
+            }
+            completion(error)
+        }
+    }
+    
+    // MARK: - Onboarding Related
+    public func updateUserInterests(
+        uid: String,
+        interests: [String],
+        completion: @escaping (Error?) -> Void
+    ) {
+        let updateData: [String: Any] = [
+            "interests": interests,
+            "lastUpdated": Timestamp(date: Date())
+        ]
+        
+        db.collection(usersCollection).document(uid).updateData(updateData) { error in
+            if let error = error {
+                print("[Database] ⚠️ Error updating interests: \(error.localizedDescription)")
+            } else {
+                print("[Database] ✅ Interests updated successfully for \(uid)")
             }
             completion(error)
         }

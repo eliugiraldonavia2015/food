@@ -1,4 +1,3 @@
-// food/food/Sources/Services/AuthService.swift
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
@@ -39,6 +38,8 @@ public struct PasswordStrength {
     }
 }
 
+
+
 public struct AppUser: Identifiable {
     public let id = UUID()
     public let uid: String
@@ -77,27 +78,19 @@ public final class AuthService: ObservableObject {
     @Published public private(set) var phoneAuthState: PhoneAuthState = .idle
     
     // MARK: - Private Properties
-    private let firestore = Firestore.firestore(database: "logincloud")
+    // ✅ Firestore centralizado desde DatabaseService
+    private let db = DatabaseService.shared.db
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     private var verificationID: String?
     
     private init() {
-        configureFirestore()
-        setupAuthStateListener()
+        setupAuthStateListener() // ✅ Ya no se llama configureFirestore()
     }
     
     deinit {
         if let handle = authStateHandle {
             Auth.auth().removeStateDidChangeListener(handle)
         }
-    }
-    
-    // MARK: - Configuration
-    private func configureFirestore() {
-        let settings = firestore.settings
-        settings.host = "firestore.googleapis.com"
-        firestore.settings = settings
-        print("[AuthService] Firestore configured for database: logincloud")
     }
     
     private func setupAuthStateListener() {
@@ -108,6 +101,17 @@ public final class AuthService: ObservableObject {
         }
     }
 }
+
+// MARK: - Public Refresh Method (para Onboarding)
+extension AuthService {
+    /// Refresca el estado de autenticación usando el usuario actual de Firebase.
+    public func refreshAuthState() {
+        let currentUser = Auth.auth().currentUser
+        updateAuthState(with: currentUser)
+    }
+}
+
+
 
 // MARK: - Phone Authentication
 extension AuthService {
@@ -126,6 +130,8 @@ extension AuthService {
                 return false
             }
         }
+    
+    
         
         public var canSendCode: Bool {
             switch self {
@@ -137,7 +143,6 @@ extension AuthService {
         }
     }
     
-    // ✅ MÉTODO ACTUALIZADO (simple y directo)
     public func sendVerificationCode(phoneNumber: String, presentingVC: UIViewController) {
         guard !isLoading else { return }
         
@@ -147,18 +152,15 @@ extension AuthService {
         
         print("[AuthService] 🔄 Enviando código a: \(phoneNumber)")
         
-        // ✅ ENFOQUE PROFESIONAL: Simple y directo
         PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: nil) { [weak self] verificationID, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.isLoading = false
                 
                 if let error = error {
-                    // Log detallado para diagnóstico
                     let nsError = error as NSError
                     print("[AuthService] ❌ Error Firebase: \(error.localizedDescription)")
                     print("[AuthService] 🔍 Código: \(nsError.code), Dominio: \(nsError.domain)")
-                    
                     self.handlePhoneAuthError(error)
                     return
                 }
@@ -212,7 +214,6 @@ extension AuthService {
     }
     
     private func handlePhoneAuthenticationSuccess(user: User) {
-        // Determinar si es usuario nuevo
         let isNewUser = user.metadata.creationDate == user.metadata.lastSignInDate
         
         if isNewUser {
@@ -230,7 +231,6 @@ extension AuthService {
         let tempUsername = "user_\(user.uid.prefix(8))"
         let tempName = "Usuario \(user.uid.prefix(6))"
         
-        // ✅ Compatible con tu DatabaseService actual
         DatabaseService.shared.createUserDocument(
             uid: user.uid,
             name: tempName,
@@ -238,7 +238,6 @@ extension AuthService {
             username: tempUsername
         )
         
-        // Actualizar estado inmediatamente
         self.user = AppUser(
             uid: user.uid,
             email: nil,
@@ -266,7 +265,6 @@ extension AuthService {
         case unknown
     }
     
-    // MARK: - Google Sign-In
     public func signInWithGoogle(presentingVC: UIViewController) {
         guard !isLoading else { return }
         
@@ -303,7 +301,6 @@ extension AuthService {
         }
     }
     
-    // MARK: - Email/Username Sign-In
     public func signInWithEmailOrUsername(identifier: String, password: String) {
         guard !isLoading else { return }
         
@@ -314,7 +311,6 @@ extension AuthService {
         if isValidEmail(identifier) {
             signInWithEmail(email: identifier, password: password)
         } else {
-            // Buscar email por username
             DatabaseService.shared.getEmailForUsername(username: identifier) { [weak self] email in
                 DispatchQueue.main.async {
                     guard let self = self else { return }
@@ -338,7 +334,6 @@ extension AuthService {
         }
     }
     
-    // MARK: - Email Sign-Up
     public func signUpWithEmail(
         email: String,
         password: String,
@@ -353,7 +348,6 @@ extension AuthService {
         errorMessage = nil
         resetPhoneAuth()
         
-        // Validación de requisitos mínimos
         guard meetsMinimumPasswordRequirements(password) else {
             handleAuthError("La contraseña debe tener al menos 8 caracteres, incluyendo una mayúscula y una minúscula.")
             return
@@ -401,7 +395,6 @@ extension AuthService {
                     print("[AuthService] Profile update error: \(error)")
                 }
                 
-                // ✅ Compatible con tu DatabaseService actual
                 DatabaseService.shared.createUserDocument(
                     uid: user.uid,
                     name: fullName,
@@ -415,6 +408,10 @@ extension AuthService {
         }
     }
 }
+
+// ✅ Las secciones restantes (validación, fuerza de contraseña, errores, manejo de usuario)
+// se mantienen idénticas a tu versión actual — no requieren cambios.
+
 
 // MARK: - Validation Methods
 extension AuthService {
